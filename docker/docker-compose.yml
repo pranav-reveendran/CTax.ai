@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: taxzy-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: taxzy-ai
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - taxzy-network
+
+  # Chroma Vector Database
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: taxzy-chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - taxzy-network
+
+  # Backend API
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: taxzy-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/taxzy-ai?authSource=admin
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: http://localhost:3000
+      DOCUMENT_PROCESSOR_URL: http://document-processor:8000
+    depends_on:
+      - mongodb
+      - document-processor
+    networks:
+      - taxzy-network
+
+  # Document Processor Service
+  document-processor:
+    build:
+      context: ../document-processor
+      dockerfile: Dockerfile
+    container_name: taxzy-document-processor
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      FLASK_ENV: production
+      FLASK_PORT: 8000
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY}
+    depends_on:
+      - chroma
+    volumes:
+      - document_data:/app/data
+    networks:
+      - taxzy-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: taxzy-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      REACT_APP_API_URL: http://localhost:5000/api
+    depends_on:
+      - backend
+    networks:
+      - taxzy-network
+
+volumes:
+  mongodb_data:
+  chroma_data:
+  document_data:
+
+networks:
+  taxzy-network:
+    driver: bridge
